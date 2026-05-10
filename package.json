@@ -1,36 +1,19 @@
 {
   "name": "hermes-skill-kimi-code",
-  "version": "1.0.0",
-  "description": "Hermes Agent skill for delegating coding tasks to Kimi Code CLI",
-  "author": "xiongye",
-  "license": "Apache-2.0",
+  "version": "2.0.0",
+  "description": "Hermes skill for delegating coding tasks to Kimi Code CLI",
   "repository": {
     "type": "git",
-    "url": "https://github.com/xiongye/hermes-skill-kimi-code.git"
+    "url": "https://github.com/xiongyecpu/hermes-skill-kimi-code.git"
   },
   "keywords": [
-    "hermes-agent",
+    "hermes",
     "skill",
     "kimi",
     "moonshot",
     "coding-agent",
     "cli"
   ],
-  "hermes": {
-    "skill": "kimi-code",
-    "category": "autonomous-ai-agents",
-    "tags": [
-      "Coding-Agent",
-      "Kimi",
-      "Moonshot-AI",
-      "Code-Review",
-      "Refactoring"
-    ],
-    "related_skills": [
-      "claude-code",
-      "codex",
-      "opencode",
-      "hermes-agent"
-    ]
-  }
+  "author": "xiongye",
+  "license": "Apache-2.0"
 }

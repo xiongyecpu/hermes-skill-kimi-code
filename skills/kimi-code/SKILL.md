@@ -12,353 +12,461 @@ metadata:
 
 # Kimi Code — Hermes Orchestration Guide
 
-Delegate coding tasks to [Kimi Code CLI](https://www.kimi.com/code/) (Moonshot AI's autonomous coding agent) via the Hermes terminal. Kimi Code CLI can read/edit code, execute shell commands, search/fetch web pages, and autonomously plan and adjust actions.
+This skill enables Hermes agents to delegate coding tasks to [Kimi Code CLI](https://code.kimi.com), a command-line AI coding assistant by Moonshot AI. Kimi provides competitive code generation, refactoring, and exploration capabilities with support for interactive sessions, background tasks, and worktree-based parallel work.
 
 ## Prerequisites
 
-- **Install** (choose one):
-  - `curl -LsSf https://code.kimi.com/install.sh | bash` (macOS/Linux)
-  - `Invoke-RestMethod https://code.kimi.com/install.ps1 | Invoke-Expression` (Windows PowerShell)
-  - `uv tool install --python 3.13 kimi-cli` (if you already have [uv](https://docs.astral.sh/uv/))
-- **Auth**: run `kimi`, then enter `/login` to configure platform and API key (OAuth or API Key)
-- **Verify**: `kimi --version`
-- **Update**: `uv tool upgrade kimi-cli --no-cache`
-- **Uninstall**: `uv tool uninstall kimi-cli`
+### Installation
+
+Choose one of the following installation methods:
+
+**Via install script (recommended):**
+```bash
+curl -LsSf https://code.kimi.com/install.sh | bash
+```
+
+**Via uv (Python 3.13+ required):**
+```bash
+uv tool install --python 3.13 kimi-cli
+```
+
+### Authentication
+
+After installation, authenticate by running the CLI and using the built-in login command:
+```bash
+kimi
+/login
+```
+
+Follow the browser-based authentication flow.
+
+### Verify Installation
+
+```bash
+kimi --version
+```
+
+### Update
+
+```bash
+uv tool upgrade kimi-cli --no-cache
+```
+
+### Uninstall
+
+```bash
+uv tool uninstall kimi-cli
+```
 
 ## Two Orchestration Modes
 
-Hermes interacts with Kimi Code in two fundamentally different ways. Choose based on the task.
+Hermes agents can interact with Kimi Code in two primary modes:
 
-### Mode 1: Print Mode (`--print`) — Non-Interactive (PREFERRED for most tasks)
+### Mode 1: Print Mode (Preferred)
 
-Print mode runs a one-shot task, returns the result, and exits. No PTY needed. No interactive prompts. Auto-approves all actions (implicitly enables `--yolo`).
+**Best for:** One-off tasks, automated workflows, CI/CD integration
 
-```
-# Simple task
-terminal(command="kimi --print -p 'Add error handling to all API calls in src/'", workdir="/path/to/project", timeout=120)
-
-# Quiet mode — only final answer, no intermediate steps
-terminal(command="kimi --quiet -p 'Explain what this project does'", workdir="/path/to/project")
-
-# Background — long coding task
-terminal(command="kimi --print -p 'Refactor the auth module to use JWT tokens'", workdir="/path/to/project", background=true, timeout=600)
+```bash
+kimi --print -p "Implement a binary search tree"
 ```
 
-**When to use print mode:**
-- One-shot coding tasks (fix a bug, add a feature, refactor)
-- CI/CD automation and scripting
-- Structured data extraction with `--output-format stream-json`
-- Piped input processing (`echo '{...}' | kimi --print --input-format=stream-json`)
-- Any task where you don't need multi-turn conversation
+- Non-interactive, no PTY required
+- Auto-approves all operations (`--yolo` implied)
+- Outputs structured JSON or plain text
+- Suitable for piping and programmatic consumption
+- Use `--quiet` for minimal output (`--print --output-format text --final-message-only`)
 
-**Print mode skips ALL interactive dialogs** — no workspace trust prompt, no permission confirmations. This makes it ideal for automation.
+### Mode 2: Interactive PTY via tmux
 
-### Mode 2: Interactive PTY via tmux — Multi-Turn Sessions
+**Best for:** Complex multi-step tasks, debugging, exploratory sessions
 
-Interactive mode gives you a full conversational REPL where you can send follow-up prompts, use slash commands, and watch Kimi work in real time. **Requires tmux orchestration.**
-
-```
-# Start a tmux session
-terminal(command="tmux new-session -d -s kimi-work -x 140 -y 40")
-
-# Launch Kimi Code inside it
-terminal(command="tmux send-keys -t kimi-work 'cd /path/to/project && kimi' Enter")
-
-# Wait for startup (~3-5 seconds), then send your task
-terminal(command="sleep 5 && tmux send-keys -t kimi-work 'Refactor the auth module to use JWT tokens' Enter")
-
-# Monitor progress by capturing the pane
-terminal(command="sleep 15 && tmux capture-pane -t kimi-work -p -S -50")
-
-# Send follow-up tasks
-terminal(command="tmux send-keys -t kimi-work 'Now add unit tests for the new JWT code' Enter")
-
-# Exit when done
-terminal(command="tmux send-keys -t kimi-work '/exit' Enter")
+```bash
+tmux new-session -d -s kimi-work "kimi"
+tmux send-keys -t kimi-work "Implement a REST API with error handling" C-m
 ```
 
-**When to use interactive mode:**
-- Multi-turn iterative work (refactor → review → fix → test cycle)
-- Tasks requiring human-in-the-loop decisions
-- Exploratory coding sessions
-- When you need to use Kimi's slash commands (`/compact`, `/plan`, `/model`)
+- Full interactive session with confirmation dialogs
+- Requires PTY management (tmux recommended)
+- Allows observation of agent progress
+- Supports `/plan` mode and visual feedback
+- Use for long-running tasks where oversight is valuable
 
-## PTY Dialog Handling (CRITICAL for Interactive Mode)
+## PTY Dialog Handling
 
-Kimi Code presents a confirmation dialog on first launch. You MUST handle these via tmux send-keys:
+When using interactive mode, certain operations trigger confirmation dialogs:
 
-### Dialog: Workspace Trust (first visit to a directory)
+**Trust dialogs** appear for:
+- File operations outside work directory
+- Shell command execution
+- External tool usage
+
+**Handling strategies:**
+
+1. **Automated approval:** Include `--yolo` or `--yes` flags
+2. **Pre-approval:** Use `kimi acp` (approve common paths) beforehand
+3. **tmux automation:** Send confirmations via `tmux send-keys`
+4. **Print mode:** Avoid dialogs entirely
+
+```bash
+# Pre-approve common paths
+kimi acp
+
+# Auto-approve in session
+kimi --yolo -p "Refactor the auth module"
+
+# Send 'y' via tmux
+tmux send-keys -t kimi-work "y" C-m
 ```
-❯ 1. Yes, I trust this folder    ← DEFAULT (just press Enter)
-  2. No, exit
-```
-**Handling:** `tmux send-keys -t <session> Enter` — default selection is correct.
-
-### Robust Dialog Handling Pattern
-```
-# Launch Kimi Code
-terminal(command="tmux send-keys -t kimi-work 'cd /path/to/project && kimi' Enter")
-
-# Handle trust dialog (Enter for default "Yes")
-terminal(command="sleep 4 && tmux send-keys -t kimi-work Enter")
-
-# Now wait for Kimi to work
-terminal(command="sleep 15 && tmux capture-pane -t kimi-work -p -S -60")
-```
-
-**Note:** After the first trust acceptance for a directory, the trust dialog won't appear again.
 
 ## CLI Subcommands
 
 | Subcommand | Description |
 |------------|-------------|
-| `kimi` | Start interactive session |
-| `kimi login` | Login to Kimi account (OAuth) |
-| `kimi logout` | Logout and clear credentials |
-| `kimi info` | Show version and protocol info |
-| `kimi acp` | Start ACP server (for IDE integration) |
-| `kimi mcp` | Manage MCP server configurations |
-| `kimi term` | Run TUI terminal interface |
-| `kimi vis` | Run agent tracing visualizer (tech preview) |
-| `kimi web` | Start web UI server |
-| `kimi export` | Export session data as ZIP |
+| `kimi` | Start interactive coding session |
+| `kimi login` | Authenticate with Kimi Code |
+| `kimi logout` | Clear authentication credentials |
+| `kimi info` | Display version and configuration info |
+| `kimi acp` | Approve common paths for file operations |
+| `kimi mcp` | Manage MCP server connections |
+| `kimi term` | Terminal/UI mode (default interactive) |
+| `kimi vis` | Visualization mode (graphs, diagrams) |
+| `kimi web` | Launch web UI |
+| `kimi export` | Export conversation history |
 
 ## Print Mode Deep Dive
 
+Print mode is the primary integration point for Hermes agents.
+
 ### Structured JSON Output
-```
-terminal(command="kimi --print -p 'Analyze auth.py for security issues' --output-format stream-json", workdir="/project", timeout=120)
+
+```bash
+kimi --print --output-format stream-json -p "Add input validation"
 ```
 
-Returns JSONL (newline-delimited JSON) output:
-```jsonl
-{"role":"assistant","content":"The analysis found..."}
-{"role":"tool","tool_call_id":"tc_1","content":"Tool execution result"}
+Returns streaming JSON objects:
+```json
+{"type": "start", "timestamp": "..."}
+{"type": "thinking", "content": "..."}
+{"type": "tool_use", "tool": "ReadFile", "input": {"path": "src/main.py"}}
+{"type": "tool_result", "tool": "ReadFile", "output": {"content": "..."}}
+{"type": "message", "role": "assistant", "content": "I've added validation..."}
+{"type": "end", "exit_code": 0}
 ```
 
 ### Piped Input
-```
-# Pipe a file for analysis
-terminal(command="cat src/auth.py | kimi --print -p 'Review this code for bugs' --max-steps-per-turn 10", timeout=60)
 
-# Pipe command output
-terminal(command="git diff HEAD~3 | kimi --print -p 'Summarize these changes'", timeout=60)
+```bash
+echo "Extract the user service into a separate module" | kimi --print
+cat task.txt | kimi --print --output-format text
 ```
 
-### Exit Codes (for scripting/CI)
+### Exit Codes
 
-| Exit code | Meaning |
-|-----------|---------|
-| `0` | Success — task completed |
-| `1` | Permanent failure — config error, auth failure, quota exhausted |
-| `2` | Transient failure — rate limit (429), server error (5xx), timeout (safe to retry) |
-| `3` | Interrupted — user interrupted with Ctrl-C |
+| Code | Meaning | Action |
+|------|---------|--------|
+| 0 | Success | Proceed |
+| 1 | Permanent failure | Abort, do not retry |
+| 2 | Transient failure | Retry with backoff |
+| 3 | Interrupted | User cancelled |
 
 ### Ralph Loop Mode
 
-[Ralph](https://ghuntley.com/ralph/) is a technique that puts the agent in a loop: the same prompt is repeatedly fed to the agent, letting it iterate on a task continuously.
+The "Ralph Loop" is Kimi's internal iteration mechanism where the agent:
+1. Reads current state
+2. Plans next action
+3. Executes tool call
+4. Observes result
+5. Repeats until done
 
-```
-terminal(command="kimi --print -p 'Keep improving the test coverage until it reaches 90%' --max-ralph-iterations 10", workdir="~/project", timeout=300)
-```
-
-The agent loops until it outputs `<choice>STOP</choice>` or reaches the iteration limit.
+Control via flags:
+- `--max-steps-per-turn N` (default: 100)
+- `--max-retries-per-step N` (default: 3)
+- `--max-ralph-iterations N` (overall loop limit)
 
 ## Complete CLI Flags Reference
 
 ### Session & Environment
-| Flag | Shorthand | Effect |
-|------|-----------|--------|
-| `--print` | | Non-interactive mode, auto-approves all actions, outputs to stdout |
-| `--quiet` | | Shorthand for `--print --output-format text --final-message-only` |
-| `--prompt TEXT` | `-p`, `-c` | Task prompt (non-interactive) |
-| `--continue` | `-C` | Continue most recent session in current directory |
-| `--session [ID]` / `--resume [ID]` | `-S` / `-r` | Resume session. With ID: resume specific session; without ID: interactive picker |
-| `--work-dir PATH` | `-w` | Working directory (default: current) |
-| `--add-dir PATH` | | Add extra directory to workspace scope (repeatable) |
-| `--config STRING` | | Load TOML/JSON configuration string |
-| `--config-file PATH` | | Load configuration file (default: `~/.kimi/config.toml`) |
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--continue` | `-C` | Continue last session in current directory |
+| `--session [ID]` | `-S` | Attach to specific session ID |
+| `--resume [ID]` | `-r` | Resume previous session |
+| `--work-dir PATH` | `-w` | Set working directory |
+| `--add-dir PATH` | | Add directory to context |
+| `--config STRING` | | Named configuration profile |
+| `--config-file PATH` | | Use specific config file |
 
 ### Model & Performance
-| Flag | Shorthand | Effect |
-|------|-----------|--------|
-| `--model NAME` | `-m` | Specify LLM model (default from config) |
-| `--thinking` | | Enable thinking mode (deeper reasoning) |
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--model NAME` | `-m` | Select model (e.g., `moonshot-v1-128k`, `claude-3-7-sonnet`) |
+| `--thinking` | | Enable thinking mode (if supported) |
 | `--no-thinking` | | Disable thinking mode |
-| `--plan` | | Start in plan mode (read-only planning) |
-| `--max-steps-per-turn N` | | Override max steps per turn (default: 100) |
-| `--max-retries-per-step N` | | Override max retries per step (default: 3) |
-| `--max-ralph-iterations N` | | Ralph loop iterations. `0`=off, `-1`=infinite |
+| `--plan` | | Start in planning mode |
+| `--max-steps-per-turn N` | | Max Ralph Loop iterations per turn |
+| `--max-retries-per-step N` | | Max retries per tool call |
+| `--max-ralph-iterations N` | | Overall loop limit |
 
 ### Permission & Safety
-| Flag | Shorthand | Effect |
-|------|-----------|--------|
-| `--yolo` | `-y` | Auto-approve all operations |
-| `--yes` | | Alias for `--yolo` |
-| `--auto-approve` | | Alias for `--yolo` |
 
-### Output & Input Format
-| Flag | Effect |
-|------|--------|
-| `--output-format FORMAT` | `text` (default) or `stream-json` |
-| `--input-format FORMAT` | `text` (default) or `stream-json` (stdin) |
-| `--final-message-only` | Only output the final assistant message |
-| `--verbose` | Verbose output |
-| `--debug` | Debug logging to `~/.kimi/logs/kimi.log` |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--yolo` | `-y` | Auto-approve all operations |
+| `--yes` | | Auto-approve operations |
+| `--auto-approve` | | Alias for `--yes` |
+
+### Output & Input
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--output-format FORMAT` | | `text` or `stream-json` |
+| `--input-format FORMAT` | | Input format |
+| `--final-message-only` | | Output only final response |
+| `--quiet` | | Minimal output (implies `--print --output-format text --final-message-only`) |
+| `--verbose` | `-v` | Detailed output |
+| `--debug` | | Debug-level output |
+| `--print` | | Non-interactive print mode |
 
 ### Agent & MCP
-| Flag | Effect |
-|------|--------|
-| `--agent NAME` | Built-in agent: `default`, `okabe` |
-| `--agent-file PATH` | Custom agent file |
-| `--skills-dir PATH` | Add extra skills directory (repeatable) |
-| `--mcp-config-file PATH` | Load MCP config file (repeatable) |
-| `--mcp-config JSON` | Load MCP config JSON string (repeatable) |
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--agent NAME` | | Select subagent (coder, explore, plan) |
+| `--agent-file PATH` | | Custom agent definition |
+| `--skills-dir PATH` | | Skills directory path |
+| `--mcp-config-file PATH` | | MCP configuration file |
+| `--mcp-config JSON` | | Inline MCP configuration |
 
 ## Session Management
 
-```
-# Continue most recent session in current directory
-terminal(command="kimi --continue --print -p 'Continue where we left off'", workdir="~/project")
+### Continuing Sessions
 
+```bash
+# Continue last session in current directory
+kimi --continue
+
+# Equivalent short form
+kimi -C
+
+# Continue with prompt
+kimi -C -p "Now add unit tests"
+```
+
+### Session Resumption
+
+```bash
 # Resume specific session by ID
-terminal(command="kimi --session abc123 --print -p 'Pick up this session'", workdir="~/project")
+kimi --session abc123
 
-# Interactive session picker (tmux only)
-terminal(command="kimi --session", workdir="~/project", pty=true)
+# Resume from any directory
+kimi --work-dir /path/to/project --resume abc123
+
+# Short form
+kimi -S abc123
+kimi -r abc123
 ```
 
-Session state is automatically persisted and restored:
-- Approval decisions (YOLO mode, per-operation approvals)
-- Plan mode state
-- Subagent instances
-- Extra directories added via `--add-dir`
+### Session Picker
+
+Run `kimi` without arguments in a project directory to see available sessions:
+```
+Recent sessions in this directory:
+  [1] abc123 - "Add authentication" (2 hours ago)
+  [2] def456 - "Refactor database" (yesterday)
+```
 
 ## Model and Thinking Control
 
+### Model Selection
+
+```bash
+# Use specific model
+kimi --model moonshot-v1-128k -p "Task"
+
+# List available models
+kimi info
 ```
-# Use a specific model
-terminal(command="kimi --print -m kimi-for-coding -p 'Solve this hard problem'", workdir="~/project")
 
-# Enable thinking mode (deeper reasoning)
-terminal(command="kimi --thinking --print -p 'Analyze the architecture tradeoffs'", workdir="~/project")
+**Common models:**
+- `moonshot-v1-128k` - Default Kimi model
+- `claude-3-7-sonnet` - Claude 3.7 Sonnet via Kimi
+- `claude-3-5-sonnet` - Claude 3.5 Sonnet via Kimi
 
-# Disable thinking mode (faster, cheaper)
-terminal(command="kimi --no-thinking --print -p 'Quick formatting fix'", workdir="~/project")
+### Thinking Mode
+
+Enable extended reasoning (model-dependent):
+
+```bash
+# Enable thinking
+kimi --thinking -p "Complex algorithm optimization"
+
+# Disable explicitly
+kimi --no-thinking -p "Simple refactor"
 ```
 
-**Note**: `kimi-for-coding` is the fixed model ID. The backend automatically maps it to the latest released model — you don't need to change configuration for model upgrades.
+**Note:** Not all models support thinking mode. Check model compatibility first.
 
 ## PR Reviews
 
 ### Quick Review (Print Mode)
-```
-terminal(command="cd /path/to/repo && git diff main...feature-branch | kimi --print -p 'Review this diff for bugs, security issues, and style problems. Be thorough.'", timeout=60)
+
+```bash
+kimi --print -p "Review PR #123: check for security issues"
 ```
 
+- Fast, non-interactive
+- Returns review as text/JSON
+- Suitable for automated checks
+
 ### Deep Review (Interactive + Worktree)
+
+```bash
+# Create worktree for isolated review
+git worktree add ../review-123 pr-123
+cd ../review-123
+
+# Start interactive review session
+kimi --plan
 ```
-terminal(command="git worktree add /tmp/pr-review pr-branch", workdir="~/project")
-terminal(command="tmux new-session -d -s review -x 140 -y 40")
-terminal(command="tmux send-keys -t review 'cd /tmp/pr-review && kimi' Enter")
-terminal(command="sleep 5 && tmux send-keys -t review 'Review all changes vs main. Check for bugs, security issues, race conditions, and missing tests.' Enter")
-terminal(command="sleep 30 && tmux capture-pane -t review -p -S -60")
-```
+
+- Full context with files
+- Can make edits directly
+- Preserves original branch
 
 ## Parallel Work with Worktrees
 
-```
-# Create worktrees
-terminal(command="git worktree add -b fix/issue-78 /tmp/issue-78 main", workdir="~/project")
-terminal(command="git worktree add -b fix/issue-99 /tmp/issue-99 main", workdir="~/project")
+Worktree isolation enables parallel task execution:
 
-# Launch Kimi in each (background)
-terminal(command="kimi --print -p 'Fix issue #78: <description>. Commit when done.'", workdir="/tmp/issue-78", background=true)
-terminal(command="kimi --print -p 'Fix issue #99: <description>. Commit when done.'", workdir="/tmp/issue-99", background=true)
+```bash
+# Create multiple worktrees
+git worktree add ../feature-a feature-a
+git worktree add ../feature-b feature-b
 
-# Monitor all
-process(action="list")
+# Run parallel Kimi sessions
+kimi --work-dir ../feature-a --print -p "Implement feature A" &
+kimi --work-dir ../feature-b --print -p "Implement feature B" &
 
-# After completion, push and create PRs
-terminal(command="cd /tmp/issue-78 && git push -u origin fix/issue-78")
-terminal(command="gh pr create --repo user/repo --head fix/issue-78 --title 'fix: ...' --body '...'")
-
-# Cleanup
-terminal(command="git worktree remove /tmp/issue-78", workdir="~/project")
+# Wait for completion
+wait
 ```
 
-## Background Mode (Long Tasks)
+**Benefits:**
+- True parallelism
+- Isolated file systems
+- Independent git histories
+- No blocking between tasks
 
-```
-# Start in background with print mode
-terminal(command="kimi --print -p 'Implement the feature described in plan.md'", workdir="~/project", background=true, timeout=600)
-# Returns session_id
+## Background Mode
+
+For long-running tasks with process monitoring:
+
+```bash
+# Start background task
+kimi --print -p "Run full test suite and fix failures" > task.log 2>&1 &
 
 # Monitor progress
-process(action="poll", session_id="<id>")
-process(action="log", session_id="<id>")
+tail -f task.log
 
-# Kill if needed
-process(action="kill", session_id="<id>")
+# Check if still running
+ps aux | grep kimi
+```
+
+**Configurable via `~/.kimi/config.toml`:**
+```toml
+[background]
+max_concurrent = 4  # Max parallel background tasks
 ```
 
 ## Configuration
 
-Default config: `~/.kimi/config.toml` (also supports JSON)
+### Config File Location
 
-Key settings:
+Primary configuration: `~/.kimi/config.toml`
+
+Alternative formats supported: `.json`, `.yaml`
+
+### Key Settings
+
 ```toml
-# Model settings
-default_model = "kimi-for-coding"
+[model]
+default_model = "moonshot-v1-128k"
 default_thinking = false
-
-# Behavior
 default_yolo = false
+
+[plan]
 default_plan_mode = false
 
-# Loop control
 [loop_control]
 max_steps_per_turn = 100
 max_retries_per_step = 3
+max_ralph_iterations = 1000
 
-# Background tasks
 [background]
 max_concurrent = 4
+
+[paths]
+approved_dirs = ["/usr/local", "./src"]
 ```
 
-Kimi Code CLI supports multiple providers: Kimi Code, OpenAI, Anthropic, Gemini, VertexAI. See [official providers docs](https://www.kimi.com/code/docs/kimi-code-cli/configuration/providers-and-models.html).
+### Provider Configuration: API Platform Warning
 
-**Important**: Kimi Code (`api.kimi.com`) and Kimi Open Platform (`api.moonshot.cn`) are completely separate account systems. API keys are NOT interchangeable.
+**Important:** Kimi Code (`api.kimi.com`) and Kimi Open Platform (`api.moonshot.cn`) are **separate services with non-interchangeable API keys**.
+
+| Platform | Base URL (OpenAI) | Base URL (Anthropic) | Purpose |
+|----------|-------------------|----------------------|---------|
+| Kimi Code | `https://api.kimi.com/coding/v1` | `https://api.kimi.com/coding/` | AI coding assistant |
+| Kimi Open Platform | `https://api.moonshot.cn/v1` | N/A | General API access |
+
+**Common pitfall:** Using Open Platform key for Code CLI (or vice versa) causes authentication failures. Ensure you're using the correct key for the intended service.
 
 ## Context Management
 
-- **Auto-compaction**: Kimi CLI auto-compacts context when usage reaches ~85%
-- **Manual compression**: Use `/compact [focus]` to summarize and compress context
-- **Clear context**: Use `/clear` to wipe conversation history
-- **Context size**: 262K tokens (model-dependent)
-- **Status bar**: Shows `context: 42.0% (4.2k/10.0k)` format
+### Auto-Compaction
 
-## AGENTS.md — Project Context File
+Kimi automatically compacts context at approximately 85% of token limit (~262K tokens). Older messages are summarized while preserving critical information.
 
-Kimi Code CLI auto-loads `AGENTS.md` from the project root. Use it to persist project context:
+### Manual Context Control
 
-```markdown
-# Project: My API
+```bash
+# Compact context with focus
+/compact "Focus on authentication changes"
 
-## Architecture
-- FastAPI backend with SQLAlchemy ORM
-- PostgreSQL database, Redis cache
-
-## Key Commands
-- `make test` — run full test suite
-- `make lint` — ruff + mypy
-
-## Code Standards
-- Type hints on all public functions
-- 4-space indentation for Python
+# Clear entire context
+/clear
 ```
 
-Generate one automatically: run `/init` inside Kimi CLI.
+### Context Size Indicators
+
+In interactive mode, context usage appears in prompts:
+```
+[Context: 223K/262K tokens]
+```
+
+## AGENTS.md
+
+Project-specific agent configuration file, auto-loaded from project root.
+
+**Generate with:**
+```bash
+kimi
+/init
+```
+
+**Format:**
+```markdown
+# Project Agents
+
+## Agent: specialist
+Role: Database optimization specialist
+Context: Focus on SQL queries, indexing, migrations
+Tools: +ReadFile, +Grep, Shell
+
+## Agent: reviewer
+Role: Code review specialist
+Context: Security, performance, style checks
+```
 
 ## Built-in Tools
 
@@ -367,94 +475,94 @@ Generate one automatically: run `/init` inside Kimi CLI.
 | `Shell` | Execute shell commands |
 | `ReadFile` | Read file contents |
 | `WriteFile` | Write/create files |
-| `StrReplaceFile` | Find and replace in files |
-| `Glob` | File pattern matching |
-| `Grep` | Search file contents |
-| `ReadMediaFile` | Read image/video files |
+| `StrReplaceFile` | String replacement in files |
+| `Glob` | Pattern-based file search |
+| `Grep` | Content search in files |
+| `ReadMediaFile` | Read images/audio/video |
 | `SearchWeb` | Web search |
-| `FetchURL` | Fetch web page content |
-| `Agent` | Spawn subagents (coder, explore, plan) |
-| `AskUserQuestion` | Ask user for structured input |
-| `SetTodoList` | Manage todo list |
-| `EnterPlanMode` / `ExitPlanMode` | Toggle plan mode |
-| `TaskList` / `TaskOutput` / `TaskStop` | Manage background tasks |
+| `FetchURL` | HTTP GET request |
+| `Agent` | Spawn sub-agent |
+| `AskUserQuestion` | Prompt user for input |
+| `SetTodoList` | Manage task list |
+| `EnterPlanMode` | Enter planning mode |
+| `ExitPlanMode` | Exit planning mode |
+| `TaskList` | List background tasks |
+| `TaskOutput` | Get task output |
+| `TaskStop` | Stop background task |
 
 ## Built-in Subagents
 
-| Type | Purpose | Available Tools |
-|------|---------|-----------------|
-| `coder` | General software engineering | Shell, ReadFile, Glob, Grep, WriteFile, StrReplaceFile, SearchWeb, FetchURL |
-| `explore` | Read-only codebase exploration | Shell, ReadFile, Glob, Grep, SearchWeb, FetchURL |
-| `plan` | Implementation planning | ReadFile, Glob, Grep, SearchWeb, FetchURL |
+| Agent | Purpose | Default Tools |
+|-------|---------|---------------|
+| `coder` | General software engineering | All tools |
+| `explore` | Read-only codebase exploration | ReadFile, Glob, Grep |
+| `plan` | Implementation planning | All tools (non-executing) |
 
 ## Interactive Session: Slash Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/help` | Show all commands |
-| `/compact [focus]` | Compress context to save tokens |
-| `/clear` | Wipe conversation history |
-| `/plan` | Enter plan mode |
-| `/model` | Switch model |
-| `/exit` | End session |
+| Command | Description |
+|---------|-------------|
+| `/help` | Show help and available commands |
+| `/compact [focus]` | Compact context with optional focus |
+| `/clear` | Clear all context |
+| `/plan` | Enter planning mode |
+| `/model [name]` | Switch model |
+| `/exit` | Exit session |
 
 ## Interactive Session: Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+C` | Cancel current input or generation |
+| `Ctrl+C` | Cancel current operation / request confirmation to exit |
 | `Ctrl+D` | Exit session |
-| `Shift+Tab` | Cycle permission modes |
-| `\` + `Enter` | Quick newline |
-| `Shift+Enter` | Newline |
+| `Shift+Tab` | Accept auto-completion |
+| `\` + `Enter` | Insert newline (don't send) |
+| `Shift+Enter` | Force send incomplete message |
 
 ## Pitfalls & Gotchas
 
-1. **Command name varies by install method** — may be `kimi` or `kimi-cli`. Check with `which kimi 2>/dev/null || which kimi-cli`. This skill uses `kimi` as default.
+1. **Command name variation:** The binary may be installed as `kimi` or `kimi-cli` depending on installation method. Check with `which kimi` or `which kimi-cli`.
 
-2. **No git repo required** — Unlike Codex, Kimi CLI works in ANY directory. No need to `git init` for scratch work.
+2. **No git required:** Unlike Claude Code, Kimi Code does not require a git repository. It works in any directory.
 
-3. **Print mode is the safest non-interactive option** — Avoid PTY + `background=true`. Prompts may not get submitted correctly. Use `--print` mode instead.
+3. **Print mode safest:** For non-interactive Hermes workflows, always prefer `--print` or `--quiet` to avoid PTY-related hangs.
 
-4. **Exit code 2 means retry** — Transient errors (rate limits, server errors, timeouts). Implement retry logic:
-   ```bash
-   kimi --print -p "Run task"
-   code=$?
-   if [ $code -eq 2 ]; then
-     sleep 10
-     kimi --print -p "Run task"
-   fi
-   ```
+4. **Exit code 2 means retry:** When exit code is 2, the failure is transient (rate limit, network). Implement exponential backoff and retry.
 
-5. **Context auto-compaction** — At ~85% usage, context is automatically compressed. For very long sessions, use `/compact` or start a new session with `/new`.
+5. **Context auto-compaction:** At ~85% of context limit, Kimi auto-compacts. This may lose some nuance from earlier conversation.
 
-6. **File truncation on multi-file generation** — Like other coding agents, Kimi may silently truncate files when generating many files at once. Always verify after bulk generation:
-   ```bash
-   python3 -c "import sys; sys.path.insert(0, 'src'); from pkg import module_a, module_b; print('OK')"
-   ```
+6. **File truncation risk:** When generating multiple files, earlier files may be truncated if context limit is hit. Use `--max-steps-per-turn` to mitigate.
 
-7. **macOS Gatekeeper delay** — First run of `kimi` may take a while due to macOS security checks. Add your terminal to "System Settings → Privacy & Security → Developer Tools" to speed up subsequent launches.
+7. **macOS Gatekeeper:** First run may pause for Gatekeeper verification. Pre-arm by running `kimi --version` once manually.
 
-8. **API Key platform mismatch** — `api.kimi.com` (Kimi Code) and `api.moonshot.cn` (Kimi Open Platform) are separate systems. Keys are NOT interchangeable. Use the correct Base URL for your key:
-   - Kimi Code OpenAI-compatible: `https://api.kimi.com/coding/v1`
-   - Kimi Code Anthropic-compatible: `https://api.kimi.com/coding/`
-   - Kimi Open Platform: `https://api.moonshot.cn/v1`
+8. **API key platform mismatch:** Kimi Code (api.kimi.com) and Kimi Open Platform (api.moonshot.cn) keys are NOT interchangeable.
 
-9. **Thinking mode needs model support** — Not all models support thinking. If unsupported, the flag is silently ignored.
+9. **Thinking mode compatibility:** Not all models support `--thinking`. Using with incompatible models will fail silently or error.
 
-10. **Session resumption requires same directory** — `--continue` finds the most recent session for the current working directory.
+10. **Session resumption requires same directory:** `--continue` only works for sessions started in the current working directory.
 
 ## Rules for Hermes Agents
 
-1. **Prefer print mode (`--print`) for single tasks** — cleaner, no dialog handling, structured output possible
-2. **Use tmux for multi-turn interactive work** — the only reliable way to orchestrate the TUI
-3. **Always set `workdir`** — keep Kimi focused on the right project directory
-4. **Use `--quiet` for simple queries** — only the final answer, no intermediate noise
-5. **Use `background=true` for long tasks** — and monitor with `process` tool
-6. **Monitor tmux sessions** — use `tmux capture-pane -t <session> -p -S -50` to check progress
-7. **Look for the `>` prompt** — indicates Kimi is waiting for input (done or asking a question)
-8. **Clean up tmux sessions** — kill them when done to avoid resource leaks
-9. **Check exit codes** — 0=success, 1=permanent fail, 2=retry, 3=interrupted
-10. **No git repo needed** — works in any directory, unlike Codex
-11. **Verify multi-file output** — run import checks after bulk file generation
-12. **Use `--max-steps-per-turn`** to prevent runaway loops on complex tasks
+1. **Default to print mode:** Use `kimi --print` for all automated tasks. Reserve interactive mode for user-initiated complex workflows.
+
+2. **Always check exit codes:** Implement retry logic for exit code 2. Abort immediately on exit code 1.
+
+3. **Pre-approve paths when possible:** Run `kimi acp` in known project directories to reduce trust dialogs.
+
+4. **Use worktrees for parallelism:** Never run multiple `kimi` processes in the same directory. Use git worktrees instead.
+
+5. **Monitor context usage:** For long sessions, watch for compaction events. Consider `/compact` with focus at strategic points.
+
+6. **Specify model explicitly:** Don't rely on default model. Use `--model` to ensure consistent behavior.
+
+7. **Capture structured output:** Use `--output-format stream-json` for programmatic consumption. Parse the JSON stream for tool calls and results.
+
+8. **Set resource limits:** Use `--max-steps-per-turn` and `--max-ralph-iterations` to prevent infinite loops in automated workflows.
+
+9. **Validate API key platform:** Ensure the correct API key is set for the intended service (Code vs Open Platform).
+
+10. **Handle first-run delays:** On macOS, account for Gatekeeper delays on first execution. Set appropriate timeouts.
+
+11. **Use background mode for long tasks:** For tasks expected to run >5 minutes, use background mode with output redirection and process monitoring.
+
+12. **Leverage subagents:** Use `--agent explore` for read-only tasks and `--agent plan` for design work. Reserve default `coder` for implementation.

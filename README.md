@@ -1,102 +1,118 @@
-# Hermes Skill: Kimi Code
+# Kimi Code — Hermes Skill
 
-A [Hermes Agent](https://github.com/NousResearch/hermes-agent) skill for delegating coding tasks to [Kimi Code CLI](https://www.kimi.com/code/) — Moonshot AI's autonomous coding agent.
+Delegate coding tasks to [Kimi Code CLI](https://www.kimi.com/code/) (Moonshot AI's autonomous coding agent) via the Hermes terminal. Kimi Code CLI can read/edit code, execute shell commands, search/fetch web pages, and autonomously plan and adjust actions.
 
-## What is Kimi Code?
+## How to Trigger This Skill in Hermes
 
-Kimi Code is Moonshot AI's coding agent that runs in your terminal. It can:
-- Read and edit code files
-- Execute shell commands
-- Search and fetch web pages
-- Autonomously plan and adjust actions
-- Spawn subagents for specialized tasks
+You can invoke this skill using natural language phrases like:
 
-## What this skill provides
-
-This skill teaches Hermes Agent how to orchestrate Kimi Code CLI for:
-- One-shot coding tasks (print mode)
-- Interactive multi-turn sessions (tmux)
-- Long-running background tasks
-- PR reviews
-- Parallel work with git worktrees
-- Session management and resumption
-
-## How do I trigger this skill in Hermes?
-
-Trigger phrases include:
-- "Use Kimi Code to refactor the auth module"
-- "Ask Kimi to fix this bug"
-- "Have Kimi review the PR"
-- "Let Kimi Code handle this"
-- "Use kimi-cli for this task"
-- "Defer to Kimi Code CLI"
+- "Ask Kimi to refactor the auth module"
+- "Use Kimi Code to fix the bug in user_service.py"
+- "Have Kimi review the changes in this PR"
+- "Let Kimi handle the database migration"
+- "Run Kimi on this codebase to add unit tests"
+- "Start a Kimi session for the frontend cleanup"
+- "Background task: Kimi implements the payment feature"
+- "Interactive Kimi: debug the API latency issue"
 
 ## Installation
 
-### Install the skill
+### 1. Install Kimi Code CLI
 
+Choose one of the following methods:
+
+**macOS/Linux (curl):**
 ```bash
-# Clone to your Hermes skills directory
-git clone https://github.com/xiongye/hermes-skill-kimi-code.git ~/.hermes/skills/autonomous-ai-agents/kimi-code
-
-# Or use Hermes skill manager
-hermes skills install xiongye/hermes-skill-kimi-code
+curl -LsSf https://code.kimi.com/install.sh | bash
 ```
 
-### Install Kimi Code CLI
+**Windows PowerShell:**
+```powershell
+Invoke-RestMethod https://code.kimi.com/install.ps1 | Invoke-Expression
+```
 
+**Using uv (recommended for developers):**
 ```bash
-# macOS / Linux
-curl -LsSf https://code.kimi.com/install.sh | bash
-
-# Or via uv
 uv tool install --python 3.13 kimi-cli
 ```
 
-### Authenticate
+### 2. Authenticate
+
+Run `kimi`, then enter `/login` to configure your account (OAuth or API Key).
 
 ```bash
 kimi
-/login
+> /login
 ```
 
-Follow the prompts to complete OAuth or API key setup.
+### 3. Verify Installation
+
+```bash
+kimi --version
+```
+
+### 4. Install This Skill
+
+Copy the `kimi-code` skill folder to your Hermes skills directory:
+
+```bash
+cp -r skills/kimi-code ~/.hermes/skills/
+```
 
 ## Quick Start
 
-### One-shot task (print mode)
+### One-Shot Task (Print Mode)
 
-```bash
-kimi --print -p "Add error handling to all API calls in src/"
+Run a single task and get the result:
+
+```
+terminal(command="kimi --print -p 'Add error handling to all API calls in src/'", workdir="/path/to/project", timeout=120)
 ```
 
-### Interactive session
+### Interactive Session (tmux)
 
-```bash
-cd ~/my-project
-kimi
+Start a multi-turn session for iterative work:
+
+```
+terminal(command="tmux new-session -d -s kimi-work -x 140 -y 40")
+terminal(command="tmux send-keys -t kimi-work 'cd /path/to/project && kimi' Enter")
+terminal(command="sleep 5 && tmux send-keys -t kimi-work 'Refactor the auth module to use JWT tokens' Enter")
 ```
 
-### Background task
+### Background Task
 
-```bash
-kimi --print -p "Refactor the auth module to use JWT tokens" &
+Run long tasks in the background:
+
 ```
+terminal(command="kimi --print -p 'Implement the feature described in plan.md'", workdir="~/project", background=true, timeout=600)
+```
+
+## Key Features
+
+- **Print Mode** (`--print`) — Non-interactive, auto-approves all actions
+- **Interactive Mode** — Full conversational REPL via tmux
+- **PR Reviews** — Automated code review with diff analysis
+- **Parallel Work** — Use git worktrees to run multiple tasks simultaneously
+- **Session Management** — Resume previous sessions with `--continue`
+- **MCP Support** — Extend with external tools and servers
+- **Multiple Providers** — Kimi, OpenAI, Anthropic, Gemini, VertexAI
 
 ## Documentation
 
-See [SKILL.md](skills/kimi-code/SKILL.md) for the complete orchestration guide.
+- **[SKILL.md](./SKILL.md)** — Complete orchestration guide for Hermes agents
+- **[Kimi Code Official Docs](https://www.kimi.com/code/docs)** — Official documentation
+- **[AGENTS.md](https://www.kimi.com/code/docs/project-context)** — Project context format
 
 ## Related Skills
 
-- [claude-code](https://github.com/NousResearch/hermes-agent/tree/main/skills/autonomous-ai-agents/claude-code) — Anthropic's Claude Code CLI
-- [codex](https://github.com/NousResearch/hermes-agent/tree/main/skills/autonomous-ai-agents/codex) — OpenAI's Codex CLI
-- [opencode](https://github.com/NousResearch/hermes-agent/tree/main/skills/autonomous-ai-agents/opencode) — OpenCode CLI
+- **[claude-code](../claude-code/)** — Claude Code CLI integration
+- **[codex](../codex/)** — Codex AI integration
+- **[opencode](../opencode/)** — OpenCode integration
 
 ## License
 
-[Apache 2.0](LICENSE) — see [LICENSE](LICENSE) file for details.
+Apache License 2.0
 
----
+## 中文文档
 
-[简体中文](README.zh-CN.md)
+[中文版文档](./README.zh-CN.md)
